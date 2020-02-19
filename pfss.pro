@@ -1,38 +1,27 @@
 ;+
-;Draw the PFSS modeled magnetic field starting from a circular area with radius
-;D around the flare site. Save an image as seen from Earth and solar
-;north.
-;Save the sph_data structure in a .sav-file.
+;piirtää kentän ja antaa sen parametrit struktuurissa sph_data
 ;-
 
 ;PARAMETERS:
-; name = time of the associated SEP event.
-; flaretime = 'year-mm-dd_hh:mm'
+; time = 'year-mm-dd_hh:mm'
 ; spacing = controls density of points, does different things depending on 
 ;           fieldtype
 ; flaresite = Coordinates of the flare. [lon,lat] as seen from earth.
 ; time = tutkittava pvm ja aika: string: 'vvvv-mm-dd_hh:mm'
 ; D = angular distance from the flaresite taken into consideration.
-; before after = which magnetogram to use, choose 1 for the previous
-; one before the flare.
-; solwind = solar wind speed in km/s, to calculate the nominal
-; Parker spiral.
-; directory = Where the data will be saved.
+; before after = which m1593729agnetogram to use, choose 1.
 
-;Calls for: histogram.pro, reddot.pro, greendot.pro, bluedot.pro,
-;transfcoord.pro
+;Calls for: histogram.pro
 
-;Calling sequence: pfss,sph_data,name='testing',flaretime='2010-08-14_10:01',spacing=100000,flaresite=[-152,17],rad=10,before=1,solwind=428,directory='~/final_gradu/data'
+;Calling sequence: pfss, sph_data, name=name, flaretime='2016-03-16_06:39', spacing=100, flaresite=[88,12], rad=10, before=1,solarwind=300, directory='reference_lambda'
 
-
-pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=flaresite, rad=rad, before=before, solwind=solwind, directory=directory
+pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=flaresite, rad=rad, before=before, solarwind=solarwind, directory=directory
 
   after=0
   if before eq 0 then begin
      after = 1
   endif
   D=rad
-  solarwind = solwind
   time=flaretime
   
   print, ''
@@ -42,7 +31,8 @@ pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=fla
   
   @pfss_data_block
   
-  ;Retrieve the data based on the given (flare)time, before or after.
+  ;Hakee datan päivämäärän ja kellonajan perusteella. lähimmän, ennen
+  ;tai jälkeen.
   if before eq 1 then begin
      pfss_restore,pfss_time2file(time,/SSW_CAT,/URL,/BEFORE)
   endif
@@ -50,7 +40,7 @@ pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=fla
      pfss_restore,pfss_time2file(time,/SSW_CAT,/URL,/AFTER)
   endif
   
-  ;Nominal Parker spiral on the source surface, Carrington coords
+  ;kentän kiinnittymispaikka, Carrington coords
   parkerlon = (360/(25.38*24*60*60))*147.9e+06*cos(!dtor*b0)/(solarwind) +l0
  
    ;print out:
@@ -59,7 +49,6 @@ pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=fla
   print, 'Carrington latitude:', b0
   print, 'Parker longitude:', parkerlon -l0
   print, ''
-
 
   ;Flaresite to carrington
   flaresite = [flaresite[0]+l0,flaresite[1]]
@@ -118,7 +107,7 @@ pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=fla
      longitudes[i] = (180/!pi)* stph[i]
   endfor
 
-  ;which lines start within D from the flare site.
+  ;which lines to use:
   touse = fltarr(alllines)
   for i=0, alllines-1 do begin
      alpha = (180/!pi)* acos( cos(!dtor*latitudes[i]) $
@@ -156,7 +145,7 @@ pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=fla
   sph_data.stth = ptr_new(newstth)
   sph_data.str = ptr_new(newstr)
 
-  ;trace the field
+  ; laskee viivoille pisteet.
   ; linekind = on output, contains kind of fieldline:
   ;                      -1=line starting point out of bounds
   ;                       0=error of some sort?
@@ -171,10 +160,13 @@ pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=fla
   spherical_trace_field, sph_data, linekind=linekind, /noreverse
 
   linekind = linekind
+  number_of_all_lines = n_elements(linekind)
 
   tmp = where(linekind eq 2, countopenlines)
   if countopenlines gt 0 then begin
-   
+
+     remove_closed_field_lines, sph_data, linekind
+     
      print, ''
      print, "Draw and save an image with just the open fieldlines."
      print, ''
@@ -192,7 +184,7 @@ pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=fla
         greendot, outim=outim, x=x, y=y, greenoutim
         outim = greenoutim
      endif
-     if flaresite[0]-l0 le 90 and flaresite[0]-l0 ge -90 then begin
+     if flaresite[0]-l0 le 90 or flaresite[0]-l0 ge -90 then begin
         reddot, outim=outim, x=x, y=y, redoutim
         outim = redoutim
      endif
@@ -256,9 +248,8 @@ pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=fla
         filename = directory+'/sph_data_'+name+'_after.sav'
      endif
      save, sph_data, l0, b0, linekind, solarwind, D, filename=filename
-    
-     histogram, sph_data, flaresite=flaresite,linekind=linekind, time=time, before=before, after=after, name=name, directory=directory, Dphi, count
-
+     
+histogram, sph_data, flaresite=flaresite,linekind=linekind, time=time, before=before, after=after, name=name, directory=directory, Dphi, count
 
   ;Find the end longitudes and latitudes:
   nstep=*sph_data.nstep
@@ -315,12 +306,10 @@ pro pfss, sph_data,name=name,flaretime=flaretime, spacing=spacing, flaresite=fla
 
 
      
-     print, 'time   D   open_lines   before   parker_lon   parker_lat   no_PFSS   lambda   alpha   longwidth   flare_lon'
-     print, name, ',', D, ',', count,'/',numberoflines, ',', before, ',', parkerlon-l0,',',   b0,',', ang_parkerjaflare,',', smallestfromparker,',', max(Dphi),',',longwidth, ',', flaresite[0]-l0
+  print, 'time   D   open_lines   before   parker_lon   parker_lat   no_PFSS   lambda   alpha   longwidth   flare_lon   flare_lat'
+     print, name, ',', D, ',', count,'/',number_of_all_lines, ',', before, ',', parkerlon-l0,',',   b0,',', ang_parkerjaflare,',', smallestfromparker,',', max(Dphi),',',longwidth, ',', flaresite[0]-l0, ',', flaresite[1]
      
   endif
-  
-   
 
 if countopenlines eq 0 then begin
    print, '--------------------------------'
@@ -328,4 +317,4 @@ if countopenlines eq 0 then begin
    print, '--------------------------------'
 end
 
- END
+END
